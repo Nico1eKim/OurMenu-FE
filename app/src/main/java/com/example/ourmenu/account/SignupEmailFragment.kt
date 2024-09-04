@@ -6,6 +6,7 @@ import android.text.Editable
 import android.text.TextWatcher
 import android.util.Log
 import android.view.LayoutInflater
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.InputMethodManager
@@ -178,13 +179,12 @@ class SignupEmailFragment : Fragment() {
     }
 
     fun postEmail(email: AccountEmailData) {
+        showToast(requireContext(),R.drawable.ic_complete,"잠시만 기다려주세요.")
         val service = RetrofitObject.retrofit.create(AccountService::class.java)
         val call = service.postAccountEmail(email)
         call.enqueue(object : retrofit2.Callback<AccountEmailResponse> {
             override fun onResponse(call: Call<AccountEmailResponse>, response: Response<AccountEmailResponse>) {
                 if (response.isSuccessful) {
-                    showToast(requireContext(),R.drawable.ic_complete,"잠시만 기다려주세요.")
-                    code = response.body()?.response
                     parentFragmentManager.beginTransaction()
                         .addToBackStack("SignupEmail")
                         .replace(

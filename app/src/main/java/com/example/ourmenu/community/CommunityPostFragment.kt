@@ -20,8 +20,10 @@ import com.example.ourmenu.data.community.ArticleMenuData
 import com.example.ourmenu.data.community.ArticleRequestData
 import com.example.ourmenu.data.community.ArticleResponse
 import com.example.ourmenu.data.community.CommunityArticleRequest
+import com.example.ourmenu.data.community.CommunityMenuReqeust
 import com.example.ourmenu.data.community.CommunityResponseData
 import com.example.ourmenu.data.community.StrResponse
+import com.example.ourmenu.data.community.PostArticleMenuResponse
 import com.example.ourmenu.data.menuFolder.data.MenuFolderData
 import com.example.ourmenu.data.menuFolder.response.MenuFolderArrayResponse
 import com.example.ourmenu.data.user.UserResponse
@@ -37,6 +39,7 @@ import com.example.ourmenu.retrofit.service.MenuFolderService
 import com.example.ourmenu.retrofit.service.UserService
 import com.example.ourmenu.util.Utils.applyBlurEffect
 import com.example.ourmenu.util.Utils.dpToPx
+import com.example.ourmenu.util.Utils.isNotNull
 import com.example.ourmenu.util.Utils.removeBlurEffect
 import com.example.ourmenu.util.Utils.showToast
 import com.google.android.material.bottomsheet.BottomSheetDialog
@@ -56,8 +59,12 @@ class CommunityPostFragment(
     lateinit var rvAdapter: CommunitySaveDialogRVAdapter
     lateinit var menuFolderList: ArrayList<String>
     var userEmail = ""
+    private var articleId = 0
     private val retrofit = RetrofitObject.retrofit
     private val menuFolderService = retrofit.create(MenuFolderService::class.java)
+    private val userService = retrofit.create(UserService::class.java)
+
+    private val communityService = RetrofitObject.retrofit.create(CommunityService::class.java)
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -66,15 +73,14 @@ class CommunityPostFragment(
     ): View? {
         binding = FragmentCommunityPostBinding.inflate(layoutInflater)
 
-        initPost() {}
+        initPost()
         return binding.root
     }
 
     private fun getUserInfo() {
 
         NetworkModule.initialize(requireContext())
-        val service = RetrofitObject.retrofit.create(UserService::class.java)
-        val call = service.getUser()
+        val call = userService.getUser()
 
         call.enqueue(object : retrofit2.Callback<UserResponse> {
             override fun onResponse(call: Call<UserResponse>, response: Response<UserResponse>) {
@@ -90,58 +96,58 @@ class CommunityPostFragment(
 
     }
 
-    fun getArticleDetail(id: Int) {
-        NetworkModule.initialize(requireContext())
-        val service = RetrofitObject.retrofit.create(CommunityService::class.java)
-        val call = service.getCommunityArticle(id)
+    private fun getArticleDetail(id: Int) {
+        val call = communityService.getCommunityArticle(id)
 
         call.enqueue(
-            object : retrofit2.Callback<ArticleResponse> {
+            object : Callback<ArticleResponse> {
                 override fun onResponse(
                     call: Call<ArticleResponse>,
                     response: Response<ArticleResponse>,
                 ) {
                     if (response.isSuccessful) {
-                        val article = response.body()?.response
-                        if (!article?.userImgUrl.isNullOrBlank()) {
-                            Glide
-                                .with(requireContext())
-                                .load(article?.userImgUrl)
-                                .into(binding.sivCommunityPostProfileImage)
+                        val result = response.body()
+                        val article = result?.response
+                        article?.let {
+                            if (it.userImgUrl.isNotNull()) {
+                                Glide
+                                    .with(requireContext())
+                                    .load(it.userImgUrl)
+                                    .into(binding.sivCommunityPostProfileImage)
+                            }
+                            isMine = it.userEmail == userEmail
+
+                            binding.etCommunityPostTitle.text =
+                                Editable.Factory.getInstance().newEditable(it.articleTitle)
+
+
+                            // UTC 시간 -> KST 변환 및 포맷팅
+                            val createdByUtc = LocalDateTime.parse(it.createdBy, DateTimeFormatter.ISO_DATE_TIME)
+                            val createdByKst =
+                                createdByUtc
+                                    .atZone(
+                                        ZoneId.of("UTC"),
+                                    ).withZoneSameInstant(ZoneId.of("Asia/Seoul"))
+                                    .toLocalDateTime()
+                            val formattedDate = createdByKst.format(DateTimeFormatter.ofPattern("yyyy. M. d. HH:mm"))
+
+                            binding.tvCommunityPostTime.text = formattedDate
+
+                            Log.d("it", it.userNickname)
+                            binding.tvCommunityPostName.text = it.userNickname
+                            Log.d("tv", binding.tvCommunityPostName.text.toString())
+                            binding.etCommunityPostContent.text =
+                                Editable.Factory.getInstance().newEditable(it.articleContent)
+
+                            for (i in it.articleMenus) {
+                                menuItems.add(i)
+                            }
+
+                            binding.rvCommunityPost.adapter?.notifyDataSetChanged()
+
+                            initRV()
+                            initListener()
                         }
-                        isMine = if (response.body()?.response?.userEmail == userEmail) {
-                            true
-                        } else {
-                            false
-                        }
-
-                        binding.etCommunityPostTitle.text =
-                            Editable.Factory.getInstance().newEditable(article?.articleTitle)
-
-                        // UTC 시간 -> KST 변환 및 포맷팅
-                        val createdByUtc = LocalDateTime.parse(article?.createdBy, DateTimeFormatter.ISO_DATE_TIME)
-                        val createdByKst =
-                            createdByUtc
-                                .atZone(
-                                    ZoneId.of("UTC"),
-                                ).withZoneSameInstant(ZoneId.of("Asia/Seoul"))
-                                .toLocalDateTime()
-                        val formattedDate = createdByKst.format(DateTimeFormatter.ofPattern("yyyy. M. d. HH:mm"))
-
-                        binding.tvCommunityPostTime.text = formattedDate
-
-                        binding.tvCommunityPostName.text = article?.userNickname
-                        binding.etCommunityPostContent.text =
-                            Editable.Factory.getInstance().newEditable(article?.articleContent)
-
-                        for (i in article?.articleMenus!!) {
-                            menuItems.add(i)
-                        }
-
-                        binding.rvCommunityPost.adapter?.notifyDataSetChanged()
-
-                        initRV()
-                        initListener()
                     }
                 }
 
@@ -149,19 +155,17 @@ class CommunityPostFragment(
                     call: Call<ArticleResponse>,
                     t: Throwable,
                 ) {
-                    TODO("Not yet implemented")
+//                    TODO("Not yet implemented")
                 }
             },
         )
     }
 
-    fun initPost(callback: () -> Unit) {
-        Thread {
-            val postData = arguments?.get("articleData") as CommunityResponseData
-            getUserInfo()
-            getArticleDetail(postData?.articleId!!)
-            callback()
-        }.start()
+    private fun initPost() {
+        val postData = arguments?.get("articleData") as CommunityResponseData
+        getUserInfo()
+        articleId = postData.articleId
+        getArticleDetail(articleId)
     }
 
     private fun initRV() {
@@ -172,10 +176,10 @@ class CommunityPostFragment(
                 onDeleteClick = {
                     deleteArticle()
                 },
-                onSaveClick = {
+                onSaveClick = { item ->
                     // todo 게시글 추가 api
-                    postCommnunityArticle()
-                    showSaveDialog()
+//                    postCommnunityArticle()
+                    showSaveDialog(item)
                 },
             )
         binding.rvCommunityPost.adapter = adapter
@@ -239,7 +243,7 @@ class CommunityPostFragment(
 
     // 저장하기
     @SuppressLint("ClickableViewAccessibility")
-    private fun showSaveDialog() {
+    private fun showSaveDialog(item: ArticleMenuData) {
         val rootView = (activity?.window?.decorView as? ViewGroup)?.getChildAt(0) as? ViewGroup
         // 블러 효과 추가
         rootView?.let { applyBlurEffect(it) }
@@ -251,7 +255,6 @@ class CommunityPostFragment(
                 .setView(dialogBinding.root)
                 .create()
 
-        getMenuFolders(dialogBinding)
 
         saveDialog.setCanceledOnTouchOutside(false)
 
@@ -265,23 +268,36 @@ class CommunityPostFragment(
             window?.attributes = params
         }
 
-        dialogBinding.etCsdSearchField.setOnClickListener {
-            dialogBinding.clCommunitySaveContainer.visibility = View.VISIBLE
-        }
 
-        rvAdapter =
-            CommunitySaveDialogRVAdapter(ArrayList()) { selectedItems ->
-                dialogBinding.btnCsdEtConfirm.isEnabled = selectedItems.isNotEmpty()
-            }
+//        rvAdapter =
+//            CommunitySaveDialogRVAdapter(ArrayList()) { selectedItems ->
+//                dialogBinding.btnCsdEtConfirm.isEnabled = selectedItems.isNotEmpty()
+//            }
+        getMenuFolders(dialogBinding)
 
-        dialogBinding.rvCommunitySave.adapter = rvAdapter
-        dialogBinding.rvCommunitySave.layoutManager = LinearLayoutManager(context)
 
+//        // 확인 버튼을 클릭하면 dropdown 숨기고 선택된 항목들을 EditText에 설정
+//        dialogBinding.btnCsdEtConfirm.setOnClickListener {
+//            dialogBinding.clCommunitySaveContainer.visibility = View.GONE
+//            val selectedTitles = rvAdapter.getSelectedItems().map { it.menuFolderTitle }.joinToString(", ")
+//            dialogBinding.etCsdSearchField.setText(selectedTitles)
+//        }
         // 확인 버튼을 클릭하면 dropdown 숨기고 선택된 항목들을 EditText에 설정
         dialogBinding.btnCsdEtConfirm.setOnClickListener {
             dialogBinding.clCommunitySaveContainer.visibility = View.GONE
             val selectedTitles = rvAdapter.getSelectedItems().map { it.menuFolderTitle }.joinToString(", ")
             dialogBinding.etCsdSearchField.setText(selectedTitles)
+        }
+        dialogBinding.etCsdSearchField.setOnClickListener {
+            dialogBinding.clCommunitySaveContainer.visibility = View.VISIBLE
+        }
+        dialogBinding.btnCsdSaveConfirm.setOnClickListener {
+            postCommunityMenu(rvAdapter.getSelectedItems(), item.articleMenuId)
+            saveDialog.dismiss() // 다이얼로그 닫기
+
+        }
+        dialogBinding.ivCsdClose.setOnClickListener {
+            saveDialog.dismiss() // 다이얼로그 닫기
         }
 
         // dialog 사라지면 블러효과도 같이 사라짐
@@ -290,6 +306,24 @@ class CommunityPostFragment(
         }
 
         saveDialog.show()
+    }
+
+    private fun postCommunityMenu(selectedItems: ArrayList<MenuFolderData>) {
+
+        communityService.postCommunityMenu(
+            articleMenuId = articleId,
+            body = CommunityMenuReqeust(
+                selectedItems.map { it.menuFolderId }.toCollection(ArrayList())
+            )
+        ).enqueue(object : Callback<PostArticleMenuResponse> {
+            override fun onResponse(call: Call<PostArticleMenuResponse>, response: Response<PostArticleMenuResponse>) {
+                Log.d("CPf postCommunityMenu", response.body()?.response?.menuGroupId.toString())
+            }
+
+            override fun onFailure(call: Call<PostArticleMenuResponse>, t: Throwable) {
+                Log.d("CPF postCommunityMenu", t.toString())
+            }
+        })
     }
 
     private fun getMenuFolders(dialogBinding: CommunitySaveDialogBinding) {
@@ -312,6 +346,7 @@ class CommunityPostFragment(
                                     dialogBinding.btnCsdEtConfirm.isEnabled = selectedItems.isNotEmpty()
                                 }
                             dialogBinding.rvCommunitySave.adapter = rvAdapter
+                            dialogBinding.rvCommunitySave.layoutManager = LinearLayoutManager(context)
                             rvAdapter.notifyDataSetChanged()
                         }
                     } else {
@@ -477,15 +512,27 @@ class CommunityPostFragment(
     }
 
     fun postCommnunityArticle() {
-        NetworkModule.initialize(requireContext())
-        val service = RetrofitObject.retrofit.create(CommunityService::class.java)
         val call =
-            service.postCommunityArticle(
+            communityService.postCommunityArticle(
                 CommunityArticleRequest(
                     binding.etCommunityPostTitle.text.toString(),
                     binding.etCommunityPostContent.text.toString(),
-                    arrayListOf(),
-                ),
+                    arrayListOf()
+//                    menuItems.map {
+//                            ArticleRequestData(
+//                                it.placeTitle,
+//                                it.menuTitle,
+//                                it.menuPrice,
+//                                it.menuImgUrl,
+//                                it.menuAddress,
+//                                it.menuMemoTitle,
+//                                it.menuIconType,
+//                                it.placeMemo,
+//                                it.placeLatitude,
+//                                it.placeLongitude,
+//                            )
+//                        }.toCollection(ArrayList())
+                )
             )
         call.enqueue(
             object : retrofit2.Callback<ArticleResponse> {
@@ -493,23 +540,22 @@ class CommunityPostFragment(
                     call: Call<ArticleResponse>,
                     response: Response<ArticleResponse>,
                 ) {
-                    TODO("Not yet implemented")
+//                    TODO("Not yet implemented")
                 }
 
                 override fun onFailure(
                     call: Call<ArticleResponse>,
                     t: Throwable,
                 ) {
-                    TODO("Not yet implemented")
+//                    TODO("Not yet implemented")
                 }
             },
         )
     }
 
     fun deleteArticle() {
-        NetworkModule.initialize(requireContext())
-        val service = RetrofitObject.retrofit.create(CommunityService::class.java)
-        val call = service.deleteCommunityArticle(articleId = arguments?.getInt("articleId")!!)
+
+        val call = communityService.deleteCommunityArticle(articleId = arguments?.getInt("articleId")!!)
 
         call.enqueue(
             object : retrofit2.Callback<StrResponse> {
@@ -533,30 +579,30 @@ class CommunityPostFragment(
     }
 
     fun putArticle() {
-        NetworkModule.initialize(requireContext())
-        val service = RetrofitObject.retrofit.create(CommunityService::class.java)
 
         val call =
-            service.putCommunityArticle(
+            communityService.putCommunityArticle(
                 arguments?.getInt("articleId")!!,
                 CommunityArticleRequest(
                     binding.etCommunityPostTitle.text.toString(),
                     binding.etCommunityPostContent.text.toString(),
-                    menuItems
-                        .map {
-                            ArticleRequestData(
-                                it.placeTitle,
-                                it.menuTitle,
-                                it.menuPrice,
-                                it.menuImgUrl,
-                                it.menuAddress,
-                                "",
-                                "",
-                                "",
-                                0,
-                                0,
-                            )
-                        }.toCollection(ArrayList()),
+                    // TODO groupIds 추가 해야 함
+                    arrayListOf()
+//                    menuItems
+//                        .map {
+//                            ArticleRequestData(
+//                                it.placeTitle,
+//                                it.menuTitle,
+//                                it.menuPrice,
+//                                it.menuImgUrl,
+//                                it.menuAddress,
+//                                "",
+//                                "",
+//                                "",
+//                                0,
+//                                0,
+//                            )
+//                        }.toCollection(ArrayList()),
                 ),
             )
 
